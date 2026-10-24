@@ -65,7 +65,7 @@ go mod download
 | `-listen` | `MONITOR_LISTEN` | `127.0.0.1:9090` | 监听地址，局域网访问用 `0.0.0.0:9090` |
 | `-interval` | `MONITOR_INTERVAL` | `1s` | 采样间隔，范围 200ms – 1m |
 | `-token` | `MONITOR_TOKEN` | 空 | 设置后 API 需要令牌 |
-| `-db` | `MONITOR_DB` | 系统数据目录 | SQLite 路径；设为 `off` 关闭持久化 |
+| `-db` | `MONITOR_DB` | `./data/monitor.db` | SQLite 路径；设为 `off` 关闭持久化 |
 | `-raw-retention` | `MONITOR_RAW_RETENTION` | `336h`（14 天） | 1 秒原始数据保留时长 |
 | `-minute-retention` | `MONITOR_MINUTE_RETENTION` | `2160h`（90 天） | 1 分钟聚合保留时长 |
 | `-hour-retention` | `MONITOR_HOUR_RETENTION` | `17520h`（730 天） | 1 小时聚合保留时长 |
@@ -88,15 +88,9 @@ curl -H "X-Monitor-Token: my-secret" http://127.0.0.1:9090/api/snapshot
 
 默认启用本地 SQLite，首次启动会自动创建数据库，无需安装任何数据库服务。使用纯 Go 驱动，仍然保持 `CGO_ENABLED=0` 的六平台交叉编译。
 
-默认位置：
+默认位置：`./data/monitor.db`，相对于启动程序时的工作目录，所有平台一致；目录不存在会自动创建。
 
-| 平台 | 路径 |
-| --- | --- |
-| macOS | `~/Library/Application Support/monitor/monitor.db` |
-| Linux | `$XDG_DATA_HOME/monitor/monitor.db`，否则 `~/.local/share/monitor/monitor.db` |
-| Windows | `%LOCALAPPDATA%\monitor\monitor.db` |
-
-如果默认目录不可写，程序会自动退回内存模式并打印警告；也可以用 `-db` 指定一个可写路径。
+如果该目录不可写，程序会自动退回内存模式并打印警告；也可以用 `-db` 指定一个可写路径。
 
 保留策略：
 
@@ -107,7 +101,7 @@ curl -H "X-Monitor-Token: my-secret" http://127.0.0.1:9090/api/snapshot
 | 总体指标 + 分核/GPU/磁盘/进程聚合 | 1 小时 | 2 年 | 长期容量规划 |
 | 磁盘容量 | 60 秒 | 90 天 | 慢变化指标，避免重复写入 |
 
-数据量取决于核心数、磁盘数、网卡数和 Top 进程数，典型单机 14 天全明细约 **0.5–1.5 GB**，长期聚合数据通常只有几十到几百 MB。
+数据量取决于核心数、磁盘数、网卡数和 Top 进程数，典型单机 14 天全明细约 **1–2 GB**，长期聚合数据通常只有几十到几百 MB。
 
 实现方式：
 

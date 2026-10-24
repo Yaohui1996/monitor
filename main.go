@@ -139,7 +139,7 @@ func loadConfig() (config, bool) {
 	flag.StringVar(&cfg.listen, "listen", cfg.listen, "监听地址，例如 127.0.0.1:9090 或 0.0.0.0:9090")
 	flag.DurationVar(&cfg.interval, "interval", cfg.interval, "采样间隔，例如 1s、2s、500ms")
 	flag.StringVar(&cfg.token, "token", cfg.token, "访问令牌（可选），设置后 API 需携带 token")
-	flag.StringVar(&cfg.dbPath, "db", cfg.dbPath, "历史数据库路径，设为 off 关闭持久化（默认系统数据目录）")
+	flag.StringVar(&cfg.dbPath, "db", cfg.dbPath, "历史数据库路径，设为 off 关闭持久化（默认 ./data/monitor.db）")
 	flag.DurationVar(&cfg.rawRetention, "raw-retention", cfg.rawRetention, "1 秒原始数据保留时长")
 	flag.DurationVar(&cfg.minuteRetention, "minute-retention", cfg.minuteRetention, "1 分钟聚合数据保留时长")
 	flag.DurationVar(&cfg.hourRetention, "hour-retention", cfg.hourRetention, "1 小时聚合数据保留时长")
@@ -164,27 +164,7 @@ func days(d time.Duration) int {
 }
 
 func defaultDBPath() string {
-	switch runtime.GOOS {
-	case "darwin":
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, "Library", "Application Support", "monitor", "monitor.db")
-		}
-	case "windows":
-		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
-			return filepath.Join(dir, "monitor", "monitor.db")
-		}
-	default:
-		if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
-			return filepath.Join(dir, "monitor", "monitor.db")
-		}
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, ".local", "share", "monitor", "monitor.db")
-		}
-	}
-	if dir, err := os.UserConfigDir(); err == nil {
-		return filepath.Join(dir, "monitor", "monitor.db")
-	}
-	return filepath.Join(".", "monitor.db")
+	return filepath.Join("data", "monitor.db")
 }
 
 func envString(key, fallback string) string {
