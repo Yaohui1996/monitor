@@ -1,13 +1,15 @@
 # Monitor · 本机资源监控面板
 
-一个零依赖部署的本机监控工具：启动一个二进制文件，用浏览器打开页面，即可实时查看 CPU、内存、磁盘、网络与进程状态。
+一个零依赖部署的本机监控工具：启动一个二进制文件，用浏览器打开页面，即可实时查看 CPU、内存、GPU、磁盘、网络与进程状态。
 
 - **三平台支持**：macOS、Linux、Windows（amd64 / arm64）
 - **单文件交付**：前端资源通过 `go:embed` 打包进二进制，无需 Node、Python 或数据库
 - **实时推送**：基于 SSE 每秒推送采样数据，断线自动重连；不支持 SSE 时回退轮询
 - **历史趋势**：内存中保留最多 1 小时采样，页面可切换 1m / 5m / 15m / 1h 窗口
+- **GPU 监控**：自动检测显卡，展示利用率、显存、温度、功耗、风扇与趋势曲线
 - **只读安全**：没有任何写操作，默认仅监听回环地址，可选访问令牌
-- **响应式深色主题**：桌面与移动端均可浏览
+- **响应式布局**：桌面与移动端均可浏览
+- **明暗双主题**：浅色 / 深色一键切换，首次访问跟随系统，选择会被记住
 
 ## 快速开始
 
@@ -83,10 +85,36 @@ curl -H "X-Monitor-Token: my-secret" http://127.0.0.1:9090/api/snapshot
 - **内存**：使用率、可用 / 缓存 / Swap
 - **网络**：实时上下行速率、累计流量、活动网卡
 - **磁盘 IO**：读写速率与 IOPS
+- **GPU**：利用率、显存、温度、功耗、风扇与利用率趋势（仅在检测到 GPU 时显示）
 - **趋势图**：CPU 与内存、网络吞吐，支持鼠标悬停查看具体数值
 - **磁盘使用**：各挂载点容量与使用率
 - **进程排行**：按 CPU 或内存排序的 Top 12 进程
 - **主机信息**：系统版本、内核、CPU 型号、核心数、开机时间、采样间隔
+
+## GPU 支持
+
+页面会自动探测 GPU，未检测到设备时整个 GPU 区块隐藏。
+
+| 平台 | 数据来源 | 可用指标 |
+| --- | --- | --- |
+| macOS（Apple Silicon / AMD / Intel） | `ioreg` 的 `IOAccelerator` 统计 | 利用率、显存占用、核心数 |
+| Linux + NVIDIA | `nvidia-smi` | 利用率、显存、温度、功耗、风扇 |
+| Linux + AMD | `/sys/class/drm` 与 hwmon | 利用率、显存、温度、功耗 |
+| Linux + Intel / 其他 DRM | `/sys/class/drm` | 设备名称 |
+| Windows + NVIDIA | `nvidia-smi` | 利用率、显存、温度、功耗、风扇 |
+| Windows + AMD / Intel | WMI `Win32_VideoController` | 设备名称 |
+
+GPU 数据独立每 3 秒刷新一次，避免驱动查询拖慢主采样。
+
+## 主题切换
+
+页面右上角提供太阳 / 月亮按钮，可在浅色与深色主题之间切换：
+
+- 首次访问遵循系统的浅色 / 深色外观（`prefers-color-scheme`）
+- 手动切换后写入 `localStorage` 的 `monitor.theme`，刷新或重新打开浏览器后保持不变
+- 切换会同步重绘趋势图配色，无需刷新页面
+- 未手动选择时，系统外观变化会自动跟随
+
 
 ## HTTP API
 
@@ -97,6 +125,8 @@ curl -H "X-Monitor-Token: my-secret" http://127.0.0.1:9090/api/snapshot
 | `GET /api/snapshot` | 当前完整快照（JSON） |
 | `GET /api/history?seconds=3600` | 历史采样，列式数组，最长 86400 秒 |
 | `GET /api/stream` | SSE 实时推送，事件名 `tick`，每 20 秒心跳 |
+
+`/api/snapshot` 中的 `gpus` 字段在未检测到 GPU 时省略；`/api/history` 的 `gpu` 列取所有设备中的最高利用率。
 
 ```bash
 curl -s http://127.0.0.1:9090/api/snapshot | jq
@@ -174,6 +204,10 @@ nssm start Monitor
 │   │   ├── system.go           # CPU / 内存 / 负载 / 主机信息
 │   │   ├── disk.go             # 分区与磁盘 IO
 │   │   ├── network.go          # 网卡吞吐
+│   │   ├── gpu.go              # GPU 通用解析与异步采样
+│   │   ├── gpu_darwin.go       # macOS IOAccelerator
+│   │   ├── gpu_linux.go        # nvidia-smi / DRM sysfs
+│   │   ├── gpu_windows.go      # nvidia-smi / WMI
 │   │   └── process.go          # 进程排行（独立采样）
 │   └── server/                 # HTTP API、SSE、鉴权、静态资源
 ├── web/
@@ -190,11 +224,15 @@ nssm start Monitor
 - **速率计算**：网卡与磁盘使用累计计数器做差，重启或计数器回绕时自动归零，避免负数。
 - **历史数据**：环形缓冲区保留最多 1 小时采样（至少 300 个点，最多 20000 个点），页面初次加载即可看到趋势。
 - **进程采样**：进程枚举较重，独立协程按 2 秒（或采样间隔）刷新，不阻塞主采样节奏。
+- **GPU 采样**：macOS 解析 `IOAccelerator` 性能统计，Linux / Windows 优先调用 `nvidia-smi`，AMD Linux 回退 sysfs；独立协程每 3 秒刷新。
 - **前端**：原生 JS + Canvas 自绘图表，无 CDN、无构建步骤，离线可用。
 
 ## 已知限制
 
 - Windows 不提供 load average，页面会隐藏负载指标。
+- Windows 非 NVIDIA 显卡、Linux Intel 显卡只能读取设备名称，无法获取利用率。
+- Apple Silicon 的 GPU 使用统一内存，只能显示占用量而没有显存总量；GPU 温度与功耗需要 root 权限读取 `powermetrics`，默认不采集。
+- GPU 趋势曲线取所有设备中的最高利用率，采样间隔为 3 秒。
 - 进程 CPU 百分比相对于**单核**，与 `ps`、任务管理器口径一致；多核满载时最高可达 `100 × 核数`。
 - 在容器中运行时，读取到的是容器可见的 CPU/内存限制与 `/proc` 数据，不是宿主机全貌。
 - macOS 只展示根分区与 `/Volumes/*` 下的卷；磁盘 IO 为整盘聚合值。

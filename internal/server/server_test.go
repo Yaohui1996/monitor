@@ -63,6 +63,12 @@ func TestIndexPage(t *testing.T) {
 	if csp := rec.Header().Get("Content-Security-Policy"); csp == "" {
 		t.Error("missing CSP header")
 	}
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/theme.js", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "monitor.theme") {
+		t.Fatalf("theme bootstrap script is not served: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestTokenRequiredForAPI(t *testing.T) {
@@ -102,6 +108,7 @@ func TestHistoryEndpoint(t *testing.T) {
 		Interval float64   `json:"interval"`
 		T        []int64   `json:"t"`
 		CPU      []float64 `json:"cpu"`
+		GPU      []float64 `json:"gpu"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &hist); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
@@ -111,5 +118,8 @@ func TestHistoryEndpoint(t *testing.T) {
 	}
 	if len(hist.T) == 0 || len(hist.T) != len(hist.CPU) {
 		t.Fatalf("history columns are not aligned: %d/%d", len(hist.T), len(hist.CPU))
+	}
+	if len(hist.GPU) != len(hist.T) {
+		t.Fatalf("GPU column is not aligned: %d/%d", len(hist.GPU), len(hist.T))
 	}
 }

@@ -24,6 +24,7 @@ type Collector struct {
 	interval  time.Duration
 	topN      int
 	procEvery time.Duration
+	gpuEvery  time.Duration
 
 	history *history
 	hub     *hub
@@ -39,6 +40,11 @@ type Collector struct {
 	procCount int
 	procCPU   map[int32]float64
 	procAt    time.Time
+
+	// GPU probing can spawn driver utilities, so it is sampled asynchronously
+	// and cached as well.
+	gpuMu    sync.RWMutex
+	gpuCache []GPU
 
 	first     chan struct{}
 	firstOnce sync.Once
@@ -96,6 +102,7 @@ func New(opts Options) *Collector {
 		interval:  opts.Interval,
 		topN:      opts.TopProcesses,
 		procEvery: max(opts.Interval, 2*time.Second),
+		gpuEvery:  max(opts.Interval, 3*time.Second),
 		history:   newHistory(opts.HistorySize),
 		hub:       newHub(),
 		first:     make(chan struct{}),
@@ -107,6 +114,7 @@ func New(opts Options) *Collector {
 // Start blocks until ctx is cancelled, sampling at the configured interval.
 func (c *Collector) Start(ctx context.Context) {
 	go c.sampleProcesses(ctx)
+	go c.sampleGPUs(ctx)
 
 	// Prime delta counters (CPU, network, disk) so the first published
 	// snapshot already carries meaningful rates.
@@ -152,6 +160,7 @@ func (c *Collector) collect(now time.Time, publish bool) {
 		Network:   c.readNetwork(dt),
 		Load:      readLoad(),
 	}
+	c.fillGPUs(snap)
 	c.fillProcesses(snap)
 	c.prev.at = now
 
@@ -218,6 +227,11 @@ func pointFrom(s *Snapshot) Point {
 		Tx:    s.Network.TxBytesPerSec,
 		Read:  s.DiskIO.ReadBytesPerSec,
 		Write: s.DiskIO.WriteBytesPerSec,
+	}
+	for i := range s.GPUs {
+		if u := s.GPUs[i].Utilization; u != nil && *u > p.GPU {
+			p.GPU = *u
+		}
 	}
 	if s.Load != nil {
 		p.Load = s.Load.Load1

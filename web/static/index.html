@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<meta name="description" content="本机 CPU、内存、磁盘与网络资源实时监控面板">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#f4f7fb">
+<meta name="description" content="本机 CPU、内存、GPU、磁盘与网络资源实时监控面板">
 <title>Monitor · 本机资源监控</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1220'/%3E%3Cpath d='M10 34h10l5-14 8 28 6-14h15' fill='none' stroke='%2322d3ee' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23ffffff' stroke='%23e2e8f0'/%3E%3Cpath d='M10 34h10l5-14 8 28 6-14h15' fill='none' stroke='%230891b2' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div class="aurora" aria-hidden="true"></div>
-
 <div class="app">
   <header class="topbar">
     <div class="brand">
@@ -29,6 +29,15 @@
       <span class="chip" id="connChip"><span class="dot"></span><span id="connText">连接中</span></span>
       <span class="chip" id="loadChip">负载 <b id="loadValue">—</b></span>
       <span class="chip" id="uptimeChip">运行 <b id="uptimeValue">—</b></span>
+      <button type="button" class="theme-toggle" id="themeToggle" aria-label="切换深色模式" title="切换主题">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a6.5 6.5 0 0 0 11 11z"/>
+        </svg>
+      </button>
     </div>
   </header>
 
@@ -122,6 +131,26 @@
         <li><span>IOPS 读</span><b id="ioReadOps">—</b></li>
         <li><span>IOPS 写</span><b id="ioWriteOps">—</b></li>
       </ul>
+    </article>
+  </section>
+
+  <section class="gpu-section" id="gpuSection" hidden>
+    <article class="card">
+      <header class="card-head">
+        <h2>GPU</h2>
+        <span class="card-sub" id="gpuSub">—</span>
+      </header>
+      <div class="gpu-body" id="gpuBody">
+        <div class="gpu-list" id="gpuList"></div>
+        <div class="gpu-trend" id="gpuTrend">
+          <div class="legend">
+            <span class="legend-item gpu"><i></i>当前最高 <b id="legendGpu">—</b></span>
+          </div>
+          <div class="chart-wrap gpu-chart-wrap">
+            <canvas id="gpuChart" role="img" aria-label="GPU 利用率趋势">浏览器不支持 Canvas。</canvas>
+          </div>
+        </div>
+      </div>
     </article>
   </section>
 

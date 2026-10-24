@@ -104,6 +104,7 @@ type historyResponse struct {
 	CPU      []float64 `json:"cpu"`
 	Mem      []float64 `json:"mem"`
 	Swap     []float64 `json:"swap"`
+	GPU      []float64 `json:"gpu"`
 	Load     []float64 `json:"load"`
 	Rx       []float64 `json:"rx"`
 	Tx       []float64 `json:"tx"`
@@ -129,6 +130,7 @@ func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		CPU:      make([]float64, 0, len(points)),
 		Mem:      make([]float64, 0, len(points)),
 		Swap:     make([]float64, 0, len(points)),
+		GPU:      make([]float64, 0, len(points)),
 		Load:     make([]float64, 0, len(points)),
 		Rx:       make([]float64, 0, len(points)),
 		Tx:       make([]float64, 0, len(points)),
@@ -140,6 +142,7 @@ func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		resp.CPU = append(resp.CPU, p.CPU)
 		resp.Mem = append(resp.Mem, p.Mem)
 		resp.Swap = append(resp.Swap, p.Swap)
+		resp.GPU = append(resp.GPU, p.GPU)
 		resp.Load = append(resp.Load, p.Load)
 		resp.Rx = append(resp.Rx, p.Rx)
 		resp.Tx = append(resp.Tx, p.Tx)

@@ -155,6 +155,41 @@
   const savedSort = restore('monitor.procSort');
   if (savedSort === 'cpu' || savedSort === 'mem') state.procSort = savedSort;
 
+  // ---------------------------------------------------------------- theme
+
+  const CHART_PALETTES = {
+    light: {
+      cpu: '#0891b2',
+      mem: '#7c3aed',
+      gpu: '#e11d48',
+      rx: '#059669',
+      tx: '#d97706',
+      grid: 'rgba(15, 23, 42, 0.07)',
+      axis: 'rgba(100, 116, 139, 0.95)',
+      crosshair: 'rgba(15, 23, 42, 0.22)',
+      marker: '#ffffff',
+      empty: 'rgba(100, 116, 139, 0.9)',
+    },
+    dark: {
+      cpu: '#22d3ee',
+      mem: '#a78bfa',
+      gpu: '#fb7185',
+      rx: '#34d399',
+      tx: '#fbbf24',
+      grid: 'rgba(148, 163, 184, 0.10)',
+      axis: 'rgba(148, 163, 184, 0.85)',
+      crosshair: 'rgba(226, 232, 240, 0.26)',
+      marker: '#0b121b',
+      empty: 'rgba(148, 163, 184, 0.85)',
+    },
+  };
+
+  let chartPalette = CHART_PALETTES.light;
+
+  function seriesColor(series) {
+    return chartPalette[series.key] || series.color || '#0891b2';
+  }
+
   // ---------------------------------------------------------------- chart
 
   class TimeChart {
@@ -307,8 +342,8 @@
       ctx.save();
       ctx.font = MONO;
       ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.09)';
-      ctx.fillStyle = 'rgba(100, 116, 139, 0.95)';
+      ctx.strokeStyle = chartPalette.grid;
+      ctx.fillStyle = chartPalette.axis;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       for (let i = 0; i <= 4; i += 1) {
@@ -334,7 +369,7 @@
       if (pts.length < 2) {
         ctx.save();
         ctx.font = SANS;
-        ctx.fillStyle = 'rgba(100, 116, 139, 0.9)';
+        ctx.fillStyle = chartPalette.empty;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('正在采集数据…', g.x + g.w / 2, g.y + g.h / 2);
@@ -365,6 +400,7 @@
           lastX = x;
         }
         if (!started) continue;
+        const color = seriesColor(s);
 
         if (s.fill) {
           const area = new Path2D(line);
@@ -372,13 +408,13 @@
           area.lineTo(firstX, g.y + g.h);
           area.closePath();
           const grad = ctx.createLinearGradient(0, g.y, 0, g.y + g.h);
-          grad.addColorStop(0, hexAlpha(s.color, 0.28));
-          grad.addColorStop(1, hexAlpha(s.color, 0.01));
+          grad.addColorStop(0, hexAlpha(color, 0.28));
+          grad.addColorStop(1, hexAlpha(color, 0.01));
           ctx.fillStyle = grad;
           ctx.fill(area);
         }
 
-        ctx.strokeStyle = s.color;
+        ctx.strokeStyle = color;
         ctx.lineWidth = 1.8;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
@@ -388,15 +424,16 @@
 
       const latest = pts[pts.length - 1];
       for (const s of series) {
+        const color = seriesColor(s);
         const x = clamp(xFor(latest.t), g.x, g.x + g.w);
         const y = yFor(num(latest[s.key]));
         ctx.beginPath();
         ctx.arc(x, y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = hexAlpha(s.color, 0.16);
+        ctx.fillStyle = hexAlpha(color, 0.16);
         ctx.fill();
         ctx.beginPath();
         ctx.arc(x, y, 2.4, 0, Math.PI * 2);
-        ctx.fillStyle = s.color;
+        ctx.fillStyle = color;
         ctx.fill();
       }
 
@@ -404,7 +441,7 @@
         const x = clamp(xFor(this.hover.t), g.x, g.x + g.w);
         ctx.save();
         ctx.setLineDash([3, 3]);
-        ctx.strokeStyle = 'rgba(148, 163, 184, 0.4)';
+        ctx.strokeStyle = chartPalette.crosshair;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(x, g.y);
@@ -416,9 +453,9 @@
           const y = yFor(num(this.hover[s.key]));
           ctx.beginPath();
           ctx.arc(x, y, 3, 0, Math.PI * 2);
-          ctx.fillStyle = '#060a0f';
+          ctx.fillStyle = chartPalette.marker;
           ctx.fill();
-          ctx.strokeStyle = s.color;
+          ctx.strokeStyle = seriesColor(s);
           ctx.lineWidth = 1.6;
           ctx.stroke();
         }
@@ -428,8 +465,8 @@
 
   const usageChart = new TimeChart($('usageChart'), {
     series: [
-      { key: 'cpu', label: 'CPU', color: '#22d3ee', fill: true, format: (v) => fmtPercent(v) },
-      { key: 'mem', label: '内存', color: '#a78bfa', format: (v) => fmtPercent(v) },
+      { key: 'cpu', label: 'CPU', color: '#0891b2', fill: true, format: (v) => fmtPercent(v) },
+      { key: 'mem', label: '内存', color: '#7c3aed', format: (v) => fmtPercent(v) },
     ],
     yMax: 100,
     formatY: (v) => `${Math.round(v)}%`,
@@ -437,10 +474,16 @@
 
   const networkChart = new TimeChart($('networkChart'), {
     series: [
-      { key: 'rx', label: '下行', color: '#34d399', fill: true, format: fmtRate },
-      { key: 'tx', label: '上行', color: '#fbbf24', format: fmtRate },
+      { key: 'rx', label: '下行', color: '#059669', fill: true, format: fmtRate },
+      { key: 'tx', label: '上行', color: '#d97706', format: fmtRate },
     ],
     formatY: fmtCompactBytes,
+  });
+
+  const gpuChart = new TimeChart($('gpuChart'), {
+    series: [{ key: 'gpu', label: 'GPU', color: '#e11d48', fill: true, format: (v) => fmtPercent(v) }],
+    yMax: 100,
+    formatY: (v) => `${Math.round(v)}%`,
   });
 
   // ---------------------------------------------------------------- rendering
@@ -535,6 +578,89 @@
     setText('ioReadOps', fmtOps(io.readOpsPerSec));
     setText('ioWriteOps', fmtOps(io.writeOpsPerSec));
     setText('ioSub', `${(disks || []).length} 个分区`);
+  }
+
+  function renderGPUs(gpus) {
+    const section = $('gpuSection');
+    if (!Array.isArray(gpus) || gpus.length === 0) {
+      section.hidden = true;
+      return;
+    }
+
+    const wasHidden = section.hidden;
+    section.hidden = false;
+    $('gpuList').replaceChildren(...gpus.map(renderGPUItem));
+
+    const vendors = [...new Set(gpus.map((gpu) => gpu.vendor).filter(Boolean))];
+    setText('gpuSub', [`${gpus.length} 个设备`, vendors.join(' / ')].filter(Boolean).join(' · '));
+
+    let maxUtil = null;
+    for (const gpu of gpus) {
+      if (gpu.utilization == null) continue;
+      const value = clamp(num(gpu.utilization), 0, 100);
+      maxUtil = maxUtil == null ? value : Math.max(maxUtil, value);
+    }
+    const hasTrend = maxUtil != null;
+    setText('legendGpu', hasTrend ? fmtPercent(maxUtil) : '—');
+    $('gpuTrend').hidden = !hasTrend;
+    $('gpuBody').classList.toggle('no-chart', !hasTrend);
+
+    if (wasHidden) {
+      requestAnimationFrame(() => {
+        gpuChart.resize();
+        gpuChart.requestDraw();
+      });
+    }
+  }
+
+  function renderGPUItem(gpu) {
+    const name = gpu.name || 'GPU';
+    const util = gpu.utilization == null ? null : clamp(num(gpu.utilization), 0, 100);
+
+    const head = el('div', { class: 'gpu-head' }, el('span', { class: 'gpu-name', text: name }));
+    if (gpu.vendor) head.append(el('span', { class: 'gpu-tag', text: gpu.vendor }));
+    if (num(gpu.cores) > 0) head.append(el('span', { class: 'gpu-tag', text: `${num(gpu.cores)} 核` }));
+
+    const utilRow = el(
+      'div',
+      { class: 'gpu-util' },
+      el('b', { text: util == null ? '—' : `${util.toFixed(0)}%` }),
+      el('span', { text: '利用率' })
+    );
+    const bar = el('div', { class: 'bar gpu' });
+    const fill = el('span');
+    fill.style.width = `${util == null ? 0 : util}%`;
+    bar.append(fill);
+
+    const rows = [];
+    if (gpu.memoryUsed != null) {
+      rows.push([
+        gpu.vendor === 'Apple' ? '统一内存' : '显存',
+        gpu.memoryTotal != null
+          ? `${fmtBytes(gpu.memoryUsed)} / ${fmtBytes(gpu.memoryTotal)}`
+          : fmtBytes(gpu.memoryUsed),
+      ]);
+    }
+    if (gpu.temperature != null) rows.push(['温度', `${Math.round(num(gpu.temperature))}°C`]);
+    if (gpu.power != null) rows.push(['功耗', `${num(gpu.power).toFixed(1)} W`]);
+    if (gpu.fanSpeed != null) rows.push(['风扇', `${Math.round(num(gpu.fanSpeed))}%`]);
+
+    const children = [head, utilRow, bar];
+    if (rows.length > 0) {
+      children.push(
+        el(
+          'ul',
+          { class: 'kv gpu-kv' },
+          ...rows.map(([label, value]) =>
+            el('li', {}, el('span', { text: label }), el('b', { text: value }))
+          )
+        )
+      );
+    }
+    if (util == null) {
+      children.push(el('p', { class: 'gpu-note', text: '当前平台无法读取该 GPU 的实时利用率。' }));
+    }
+    return el('div', { class: 'gpu-item' }, ...children);
   }
 
   function renderDisks(disks) {
@@ -708,6 +834,7 @@
       chartRaf = 0;
       usageChart.setPoints(state.points);
       networkChart.setPoints(state.points);
+      gpuChart.setPoints(state.points);
     });
   }
 
@@ -716,11 +843,16 @@
     const memory = snap.memory || {};
     const network = snap.network || {};
     const io = snap.diskIO || {};
+    let gpuUtil = 0;
+    for (const gpu of snap.gpus || []) {
+      if (gpu.utilization != null) gpuUtil = Math.max(gpuUtil, num(gpu.utilization));
+    }
     return {
       t: num(snap.timestamp),
       cpu: num(cpu.percent),
       mem: num(memory.percent),
       swap: num(memory.swapPercent),
+      gpu: gpuUtil,
       load: num(snap.load && snap.load.load1),
       rx: num(network.rxBytesPerSec),
       tx: num(network.txBytesPerSec),
@@ -750,6 +882,7 @@
     renderMemory(snap.memory);
     renderNetwork(snap.network);
     renderDiskIO(snap.diskIO, snap.disks);
+    renderGPUs(snap.gpus);
     renderDisks(snap.disks);
     renderProcesses(snap.processes);
     renderLoad(snap.load);
@@ -767,6 +900,7 @@
         cpu: num(history.cpu[i]),
         mem: num(history.mem[i]),
         swap: num(history.swap[i]),
+        gpu: history.gpu ? num(history.gpu[i]) : 0,
         load: num(history.load[i]),
         rx: num(history.rx[i]),
         tx: num(history.tx[i]),
@@ -777,6 +911,7 @@
     state.points = points;
     usageChart.setPoints(points);
     networkChart.setPoints(points);
+    gpuChart.setPoints(points);
   }
 
   async function fetchJSON(path) {
@@ -898,6 +1033,7 @@
         for (const b of buttons) b.classList.toggle('active', b === button);
         usageChart.setWindow(seconds);
         networkChart.setWindow(seconds);
+        gpuChart.setWindow(seconds);
       });
     }
   }
@@ -916,12 +1052,63 @@
     }
   }
 
+  function currentTheme() {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  }
+
+  function updateThemeButton(theme) {
+    const button = $('themeToggle');
+    if (!button) return;
+    const target = theme === 'dark' ? '浅色' : '深色';
+    button.setAttribute('aria-label', `切换到${target}主题`);
+    button.title = `切换到${target}主题`;
+  }
+
+  function applyTheme(theme, persist) {
+    const next = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = next;
+    document.documentElement.style.colorScheme = next;
+    if (persist) store('monitor.theme', next);
+
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', next === 'dark' ? '#060a0f' : '#f4f7fb');
+
+    updateThemeButton(next);
+    chartPalette = CHART_PALETTES[next] || CHART_PALETTES.light;
+    usageChart.requestDraw();
+    networkChart.requestDraw();
+    gpuChart.requestDraw();
+  }
+
+  function setupTheme() {
+    const button = $('themeToggle');
+    applyTheme(currentTheme(), false);
+
+    if (button) {
+      button.addEventListener('click', () => {
+        applyTheme(currentTheme() === 'dark' ? 'light' : 'dark', true);
+      });
+    }
+
+    if (!window.matchMedia) return;
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (event) => {
+      const saved = restore('monitor.theme');
+      if (saved === 'light' || saved === 'dark') return;
+      applyTheme(event.matches ? 'dark' : 'light', false);
+    };
+    if (media.addEventListener) media.addEventListener('change', onChange);
+    else if (media.addListener) media.addListener(onChange);
+  }
+
   // ---------------------------------------------------------------- init
 
   usageChart.setWindow(state.windowSec);
   networkChart.setWindow(state.windowSec);
+  gpuChart.setWindow(state.windowSec);
   setupRangePicker();
   setupProcSort();
+  setupTheme();
   bootstrap();
 
   document.addEventListener('visibilitychange', () => {

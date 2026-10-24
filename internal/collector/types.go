@@ -12,6 +12,7 @@ type Snapshot struct {
 	Disks        []Disk    `json:"disks"`
 	DiskIO       DiskIO    `json:"diskIO"`
 	Network      Network   `json:"network"`
+	GPUs         []GPU     `json:"gpus,omitempty"`
 	Load         *Load     `json:"load,omitempty"`
 	ProcessCount int       `json:"processCount"`
 	Processes    []Process `json:"processes"`
@@ -107,6 +108,21 @@ type Load struct {
 	Load15 float64 `json:"load15"`
 }
 
+// GPU describes one graphics processor. Optional metrics are nil when the
+// platform or driver cannot report them.
+type GPU struct {
+	Index       int      `json:"index"`
+	Name        string   `json:"name"`
+	Vendor      string   `json:"vendor,omitempty"`
+	Cores       int      `json:"cores,omitempty"`
+	Utilization *float64 `json:"utilization,omitempty"`
+	MemoryUsed  *uint64  `json:"memoryUsed,omitempty"`
+	MemoryTotal *uint64  `json:"memoryTotal,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
+	Power       *float64 `json:"power,omitempty"`
+	FanSpeed    *float64 `json:"fanSpeed,omitempty"`
+}
+
 // Process describes a single process. CPUPercent is relative to one core.
 type Process struct {
 	PID        int32   `json:"pid"`
@@ -122,6 +138,7 @@ type Point struct {
 	CPU   float64 `json:"cpu"`
 	Mem   float64 `json:"mem"`
 	Swap  float64 `json:"swap"`
+	GPU   float64 `json:"gpu"`
 	Load  float64 `json:"load"`
 	Rx    float64 `json:"rx"`
 	Tx    float64 `json:"tx"`

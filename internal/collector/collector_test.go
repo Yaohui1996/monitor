@@ -46,6 +46,22 @@ func TestRate(t *testing.T) {
 	}
 }
 
+func TestPointFromUsesBusiestGPU(t *testing.T) {
+	low := 12.0
+	high := 63.5
+	snap := &Snapshot{
+		Timestamp: 1234,
+		GPUs: []GPU{
+			{Utilization: &low},
+			{Utilization: &high},
+		},
+	}
+	point := pointFrom(snap)
+	if point.GPU != high {
+		t.Fatalf("expected GPU utilization %v, got %v", high, point.GPU)
+	}
+}
+
 func TestPickTopMergesRankings(t *testing.T) {
 	procs := []Process{
 		{PID: 1, CPUPercent: 5, MemPercent: 50},
