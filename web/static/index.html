@@ -162,13 +162,21 @@
           <div class="legend">
             <span class="legend-item cpu"><i></i>CPU <b id="legendCpu">—</b></span>
             <span class="legend-item mem"><i></i>内存 <b id="legendMem">—</b></span>
+            <span class="chart-hint">点击曲线查看该时刻明细</span>
           </div>
         </div>
-        <div class="segmented" id="rangePicker" role="group" aria-label="时间范围">
-          <button type="button" data-seconds="60">1m</button>
-          <button type="button" data-seconds="300" class="active">5m</button>
-          <button type="button" data-seconds="900">15m</button>
-          <button type="button" data-seconds="3600">1h</button>
+        <div class="chart-tools">
+          <span class="resolution-badge" id="resolutionBadge">—</span>
+          <div class="segmented" id="rangePicker" role="group" aria-label="时间范围">
+            <button type="button" data-seconds="60">1m</button>
+            <button type="button" data-seconds="300" class="active">5m</button>
+            <button type="button" data-seconds="900">15m</button>
+            <button type="button" data-seconds="3600">1h</button>
+            <button type="button" data-seconds="86400">1d</button>
+            <button type="button" data-seconds="604800">7d</button>
+            <button type="button" data-seconds="2592000">30d</button>
+            <button type="button" data-seconds="31536000">1y</button>
+          </div>
         </div>
       </header>
       <div class="chart-wrap">
@@ -241,13 +249,27 @@
   <footer class="footer">
     <div class="info" id="infoGrid"></div>
     <p class="footnote">
-      采样间隔 <span id="footInterval">—</span> · 数据仅保留在内存中 · monitor <span id="footVersion">—</span>
+      采样间隔 <span id="footInterval">—</span> · <span id="footStorage">历史数据存储在内存中</span> · monitor <span id="footVersion">—</span>
     </p>
   </footer>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 <div class="tooltip" id="chartTooltip" role="status" hidden></div>
+
+<div class="detail-modal" id="detailModal" hidden>
+  <div class="detail-backdrop" data-detail-close></div>
+  <section class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <header class="detail-head">
+      <div>
+        <h2 id="detailTitle">历史明细</h2>
+        <p class="detail-sub" id="detailSub">—</p>
+      </div>
+      <button type="button" class="detail-close" id="detailClose" aria-label="关闭明细">×</button>
+    </header>
+    <div class="detail-body" id="detailBody"></div>
+  </section>
+</div>
 
 <script src="/app.js"></script>
 </body>

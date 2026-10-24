@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
@@ -17,8 +18,16 @@ import (
 	"time"
 
 	"monitor/internal/collector"
+	"monitor/internal/historydb"
 	"monitor/web"
 )
+
+// HistoryStore is the optional durable history backend.
+type HistoryStore interface {
+	Query(ctx context.Context, seconds int) (*historydb.Series, error)
+	Details(ctx context.Context, ts int64) (*historydb.Details, error)
+	Info() historydb.Info
+}
 
 // Options configures the HTTP handler.
 type Options struct {
@@ -26,6 +35,8 @@ type Options struct {
 	Token string
 	// Version is reported to the UI.
 	Version string
+	// History enables durable history and the detail endpoint when non-nil.
+	History HistoryStore
 }
 
 type server struct {
@@ -33,6 +44,7 @@ type server struct {
 	token     string
 	version   string
 	startedAt time.Time
+	history   HistoryStore
 
 	staticFS fs.FS
 	files    http.Handler
@@ -52,6 +64,7 @@ func New(c *collector.Collector, opts Options) http.Handler {
 		token:     opts.Token,
 		version:   opts.Version,
 		startedAt: time.Now(),
+		history:   opts.History,
 		staticFS:  sub,
 		files:     http.FileServer(http.FS(sub)),
 	}
@@ -60,6 +73,7 @@ func New(c *collector.Collector, opts Options) http.Handler {
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/meta", s.auth(s.handleMeta))
 	mux.HandleFunc("/api/snapshot", s.auth(s.handleSnapshot))
+	mux.HandleFunc("/api/history/details", s.auth(s.handleDetails))
 	mux.HandleFunc("/api/history", s.auth(s.handleHistory))
 	mux.HandleFunc("/api/stream", s.auth(s.handleStream))
 	mux.HandleFunc("/", s.handleStatic)
@@ -71,18 +85,28 @@ func (s *server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 type metaResponse struct {
-	Version        string  `json:"version"`
-	Interval       float64 `json:"interval"`
-	HistorySeconds int     `json:"historySeconds"`
-	Uptime         int64   `json:"uptime"`
+	Version        string         `json:"version"`
+	Interval       float64        `json:"interval"`
+	HistorySeconds int64          `json:"historySeconds"`
+	Uptime         int64          `json:"uptime"`
+	Storage        historydb.Info `json:"storage"`
 }
 
 func (s *server) handleMeta(w http.ResponseWriter, _ *http.Request) {
+	storage := historydb.Info{Enabled: false}
+	historySeconds := int64(s.collector.HistorySpan().Seconds())
+	if s.history != nil {
+		storage = s.history.Info()
+		if storage.HourRetentionSeconds > 0 {
+			historySeconds = storage.HourRetentionSeconds
+		}
+	}
 	writeJSON(w, http.StatusOK, metaResponse{
 		Version:        s.version,
 		Interval:       s.collector.Interval().Seconds(),
-		HistorySeconds: int(s.collector.HistorySpan().Seconds()),
+		HistorySeconds: historySeconds,
 		Uptime:         int64(time.Since(s.startedAt).Seconds()),
+		Storage:        storage,
 	})
 }
 
@@ -99,43 +123,80 @@ func (s *server) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 type historyResponse struct {
-	Interval float64   `json:"interval"`
-	T        []int64   `json:"t"`
-	CPU      []float64 `json:"cpu"`
-	Mem      []float64 `json:"mem"`
-	Swap     []float64 `json:"swap"`
-	GPU      []float64 `json:"gpu"`
-	Load     []float64 `json:"load"`
-	Rx       []float64 `json:"rx"`
-	Tx       []float64 `json:"tx"`
-	Read     []float64 `json:"read"`
-	Write    []float64 `json:"write"`
+	Interval   float64   `json:"interval"`
+	Resolution int64     `json:"resolution"`
+	Step       int64     `json:"step"`
+	T          []int64   `json:"t"`
+	CPU        []float64 `json:"cpu"`
+	Mem        []float64 `json:"mem"`
+	Swap       []float64 `json:"swap"`
+	GPU        []float64 `json:"gpu"`
+	Load       []float64 `json:"load"`
+	Rx         []float64 `json:"rx"`
+	Tx         []float64 `json:"tx"`
+	Read       []float64 `json:"read"`
+	Write      []float64 `json:"write"`
 }
 
 func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	seconds := 3600
+	maxSeconds := 86400
+	if s.history != nil {
+		if info := s.history.Info(); info.HourRetentionSeconds > 0 {
+			maxSeconds = int(info.HourRetentionSeconds)
+		} else {
+			maxSeconds = 2 * 365 * 24 * 3600
+		}
+	}
 	if raw := r.URL.Query().Get("seconds"); raw != "" {
 		v, err := strconv.Atoi(raw)
 		if err != nil || v <= 0 {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "seconds must be a positive integer"})
 			return
 		}
-		seconds = min(v, 86400)
+		seconds = min(v, maxSeconds)
+	}
+
+	if s.history != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		series, err := s.history.Query(ctx, seconds)
+		cancel()
+		if err == nil {
+			writeJSON(w, http.StatusOK, historyResponse{
+				Interval:   s.collector.Interval().Seconds(),
+				Resolution: series.Resolution,
+				Step:       series.Step,
+				T:          series.T,
+				CPU:        series.CPU,
+				Mem:        series.Mem,
+				Swap:       series.Swap,
+				GPU:        series.GPU,
+				Load:       series.Load,
+				Rx:         series.Rx,
+				Tx:         series.Tx,
+				Read:       series.Read,
+				Write:      series.Write,
+			})
+			return
+		}
+		log.Printf("history query failed, falling back to memory: %v", err)
 	}
 
 	points := s.collector.History(time.Duration(seconds) * time.Second)
 	resp := historyResponse{
-		Interval: s.collector.Interval().Seconds(),
-		T:        make([]int64, 0, len(points)),
-		CPU:      make([]float64, 0, len(points)),
-		Mem:      make([]float64, 0, len(points)),
-		Swap:     make([]float64, 0, len(points)),
-		GPU:      make([]float64, 0, len(points)),
-		Load:     make([]float64, 0, len(points)),
-		Rx:       make([]float64, 0, len(points)),
-		Tx:       make([]float64, 0, len(points)),
-		Read:     make([]float64, 0, len(points)),
-		Write:    make([]float64, 0, len(points)),
+		Interval:   s.collector.Interval().Seconds(),
+		Resolution: 1,
+		Step:       1,
+		T:          make([]int64, 0, len(points)),
+		CPU:        make([]float64, 0, len(points)),
+		Mem:        make([]float64, 0, len(points)),
+		Swap:       make([]float64, 0, len(points)),
+		GPU:        make([]float64, 0, len(points)),
+		Load:       make([]float64, 0, len(points)),
+		Rx:         make([]float64, 0, len(points)),
+		Tx:         make([]float64, 0, len(points)),
+		Read:       make([]float64, 0, len(points)),
+		Write:      make([]float64, 0, len(points)),
 	}
 	for _, p := range points {
 		resp.T = append(resp.T, p.Time)
@@ -150,6 +211,32 @@ func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		resp.Write = append(resp.Write, p.Write)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *server) handleDetails(w http.ResponseWriter, r *http.Request) {
+	if s.history == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "history persistence is disabled"})
+		return
+	}
+	raw := r.URL.Query().Get("ts")
+	ts, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || ts <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ts must be a unix millisecond timestamp"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	details, err := s.history.Details(ctx, ts)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read history details"})
+		return
+	}
+	if details == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no history at this timestamp"})
+		return
+	}
+	writeJSON(w, http.StatusOK, details)
 }
 
 func (s *server) handleStream(w http.ResponseWriter, r *http.Request) {

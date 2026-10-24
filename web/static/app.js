@@ -100,6 +100,45 @@
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
 
+  function fmtFullTime(ms) {
+    return `${fmtDateTime(ms)}:${pad2(new Date(ms).getSeconds())}`;
+  }
+
+  function fmtAxisTime(ms, windowSec) {
+    const d = new Date(ms);
+    if (windowSec <= 6 * 3600) {
+      return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    }
+    if (windowSec <= 3 * 86400) {
+      return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+    if (windowSec <= 90 * 86400) {
+      return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    }
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+  }
+
+  function fmtTooltipTime(ms, windowSec) {
+    const d = new Date(ms);
+    const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    if (windowSec <= 86400) {
+      return time;
+    }
+    if (windowSec <= 90 * 86400) {
+      return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${time}`;
+    }
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${time}`;
+  }
+
+  function fmtDays(seconds) {
+    const days = Math.round(num(seconds) / 86400);
+    if (days >= 365) {
+      const years = days / 365;
+      return `${years.toFixed(1).replace(/\.0$/, '')}年`;
+    }
+    return `${days}天`;
+  }
+
   function setText(id, text) {
     const node = $(id);
     if (node) node.textContent = text;
@@ -148,10 +187,18 @@
     stream: null,
     pollTimer: null,
     booted: false,
+    storageEnabled: false,
+    historySeq: 0,
+    historyResolution: 0,
+    detailSeq: 0,
+    detailOpen: false,
+    lastFocus: null,
   };
 
   const savedWindow = Number(restore('monitor.window'));
-  if ([60, 300, 900, 3600].includes(savedWindow)) state.windowSec = savedWindow;
+  if ([60, 300, 900, 3600, 86400, 604800, 2592000, 31536000].includes(savedWindow)) {
+    state.windowSec = savedWindow;
+  }
   const savedSort = restore('monitor.procSort');
   if (savedSort === 'cpu' || savedSort === 'mem') state.procSort = savedSort;
 
@@ -214,6 +261,11 @@
 
       canvas.addEventListener('pointermove', (e) => this.onMove(e));
       canvas.addEventListener('pointerleave', () => this.onLeave());
+      canvas.addEventListener('click', (e) => {
+        if (!this.config.onSelect) return;
+        this.onMove(e);
+        if (this.hover) this.config.onSelect(this.hover);
+      });
       this.resize();
     }
 
@@ -297,7 +349,7 @@
         return row;
       });
       this.tooltip.replaceChildren(
-        el('span', { class: 'tt-time', text: fmtClock(point.t) }),
+        el('span', { class: 'tt-time', text: fmtTooltipTime(point.t, this.windowSec) }),
         ...rows
       );
       this.tooltip.hidden = false;
@@ -362,7 +414,7 @@
         const frac = i / 4;
         const t = cutoff + frac * windowMs;
         const x = clamp(g.x + frac * g.w, g.x + 24, g.x + g.w - 24);
-        ctx.fillText(fmtClock(t, windowMs <= 600000), x, g.y + g.h + 8);
+        ctx.fillText(fmtAxisTime(t, this.windowSec), x, g.y + g.h + 8);
       }
       ctx.restore();
 
@@ -470,6 +522,7 @@
     ],
     yMax: 100,
     formatY: (v) => `${Math.round(v)}%`,
+    onSelect: (point) => openDetail(point.t),
   });
 
   const networkChart = new TimeChart($('networkChart'), {
@@ -484,6 +537,7 @@
     series: [{ key: 'gpu', label: 'GPU', color: '#e11d48', fill: true, format: (v) => fmtPercent(v) }],
     yMax: 100,
     formatY: (v) => `${Math.round(v)}%`,
+    onSelect: (point) => openDetail(point.t),
   });
 
   // ---------------------------------------------------------------- rendering
@@ -519,20 +573,25 @@
   }
 
   function renderCores(perCore) {
-    const container = $('cores');
-    if (container.childElementCount !== perCore.length) {
+    fillCores($('cores'), perCore);
+  }
+
+  function fillCores(container, perCore) {
+    if (!container) return;
+    const values = Array.isArray(perCore) ? perCore : [];
+    if (container.childElementCount !== values.length) {
       container.replaceChildren(
-        ...perCore.map((_, index) => {
+        ...values.map((_, index) => {
           const bar = el('div', { class: 'core', title: `逻辑核心 ${index}` });
           bar.append(el('span'));
           return bar;
         })
       );
     }
-    for (let i = 0; i < perCore.length; i += 1) {
+    for (let i = 0; i < values.length; i += 1) {
       const bar = container.children[i];
       if (!bar) continue;
-      const value = clamp(num(perCore[i]), 0, 100);
+      const value = clamp(num(values[i]), 0, 100);
       bar.firstElementChild.style.height = `${Math.max(2, value)}%`;
       bar.title = `逻辑核心 ${i} · ${value.toFixed(0)}%`;
       bar.classList.toggle('hot', value >= 85);
@@ -589,7 +648,7 @@
 
     const wasHidden = section.hidden;
     section.hidden = false;
-    $('gpuList').replaceChildren(...gpus.map(renderGPUItem));
+    $('gpuList').replaceChildren(...gpus.map((gpu) => renderGPUItem(gpu)));
 
     const vendors = [...new Set(gpus.map((gpu) => gpu.vendor).filter(Boolean))];
     setText('gpuSub', [`${gpus.length} 个设备`, vendors.join(' / ')].filter(Boolean).join(' · '));
@@ -613,7 +672,7 @@
     }
   }
 
-  function renderGPUItem(gpu) {
+  function renderGPUItem(gpu, unavailable = '当前平台无法读取该 GPU 的实时利用率。') {
     const name = gpu.name || 'GPU';
     const util = gpu.utilization == null ? null : clamp(num(gpu.utilization), 0, 100);
 
@@ -658,7 +717,7 @@
       );
     }
     if (util == null) {
-      children.push(el('p', { class: 'gpu-note', text: '当前平台无法读取该 GPU 的实时利用率。' }));
+      children.push(el('p', { class: 'gpu-note', text: unavailable }));
     }
     return el('div', { class: 'gpu-item' }, ...children);
   }
@@ -673,41 +732,43 @@
     setText('diskCount', `${disks.length} 个挂载点`);
 
     body.replaceChildren(
-      ...disks.map((disk) => {
-        const mount = el(
-          'div',
-          { class: 'mount' },
-          el('b', { text: disk.mountpoint || '—' }),
-          el('span', { text: disk.device || '' })
-        );
-        const usage = el(
-          'div',
-          { class: 'usage-cell' },
-          el('b', { text: fmtBytes(disk.used) }),
-          el('span', { text: `/ ${fmtBytes(disk.total)}` })
-        );
-        const pct = clamp(num(disk.percent), 0, 100);
-        const meter = el('div', {
-          class: 'meter' + (pct >= 90 ? ' crit' : pct >= 75 ? ' warn' : ''),
-        });
-        const fill = el('span');
-        fill.style.width = `${pct}%`;
-        meter.append(fill);
-        const meterCell = el(
-          'div',
-          { class: 'meter-line' },
-          meter,
-          el('span', { class: 'pct', text: `${Math.round(pct)}%` })
-        );
-        return el(
-          'tr',
-          {},
-          el('td', {}, mount),
-          el('td', {}, el('span', { class: 'fs', text: disk.fstype || '—' })),
-          el('td', { class: 'num' }, usage),
-          el('td', { class: 'meter-col' }, meterCell)
-        );
-      })
+      ...disks.map((disk) => buildDiskRow(disk))
+    );
+  }
+
+  function buildDiskRow(disk) {
+    const mount = el(
+      'div',
+      { class: 'mount' },
+      el('b', { text: disk.mountpoint || '—' }),
+      el('span', { text: disk.device || '' })
+    );
+    const usage = el(
+      'div',
+      { class: 'usage-cell' },
+      el('b', { text: fmtBytes(disk.used) }),
+      el('span', { text: `/ ${fmtBytes(disk.total)}` })
+    );
+    const pct = clamp(num(disk.percent), 0, 100);
+    const meter = el('div', {
+      class: 'meter' + (pct >= 90 ? ' crit' : pct >= 75 ? ' warn' : ''),
+    });
+    const fill = el('span');
+    fill.style.width = `${pct}%`;
+    meter.append(fill);
+    const meterCell = el(
+      'div',
+      { class: 'meter-line' },
+      meter,
+      el('span', { class: 'pct', text: `${Math.round(pct)}%` })
+    );
+    return el(
+      'tr',
+      {},
+      el('td', {}, mount),
+      el('td', {}, el('span', { class: 'fs', text: disk.fstype || '—' })),
+      el('td', { class: 'num' }, usage),
+      el('td', { class: 'meter-col' }, meterCell)
     );
   }
 
@@ -727,27 +788,29 @@
       .slice(0, 12);
 
     body.replaceChildren(
-      ...sorted.map((proc) => {
-        const name = String(proc.name || `pid ${proc.pid}`);
-        const cpu = num(proc.cpuPercent);
-        const initial = [...name.trim()][0] || '?';
-        const avatar = el('span', {
-          class: 'avatar c' + (Math.abs(num(proc.pid)) % 4),
-          text: initial.toUpperCase(),
-        });
-        return el(
-          'tr',
-          {},
-          el('td', {}, el('div', { class: 'proc' }, avatar, el('span', { class: 'pname', text: name }))),
-          el('td', { class: 'num mono muted', text: String(proc.pid ?? '—') }),
-          el('td', {
-            class: 'num mono' + (cpu >= 90 ? ' crit' : cpu >= 40 ? ' hot' : ''),
-            text: fmtPercent(cpu),
-          }),
-          el('td', { class: 'num mono', text: fmtPercent(proc.memPercent) }),
-          el('td', { class: 'num mono muted', text: fmtBytes(proc.rss) })
-        );
-      })
+      ...sorted.map((proc) => buildProcessRow(proc))
+    );
+  }
+
+  function buildProcessRow(proc) {
+    const name = String(proc.name || `pid ${proc.pid}`);
+    const cpu = num(proc.cpuPercent);
+    const initial = [...name.trim()][0] || '?';
+    const avatar = el('span', {
+      class: 'avatar c' + (Math.abs(num(proc.pid)) % 4),
+      text: initial.toUpperCase(),
+    });
+    return el(
+      'tr',
+      {},
+      el('td', {}, el('div', { class: 'proc' }, avatar, el('span', { class: 'pname', text: name }))),
+      el('td', { class: 'num mono muted', text: String(proc.pid ?? '—') }),
+      el('td', {
+        class: 'num mono' + (cpu >= 90 ? ' crit' : cpu >= 40 ? ' hot' : ''),
+        text: fmtPercent(cpu),
+      }),
+      el('td', { class: 'num mono', text: fmtPercent(proc.memPercent) }),
+      el('td', { class: 'num mono muted', text: fmtBytes(proc.rss) })
     );
   }
 
@@ -814,6 +877,15 @@
     if (!state.meta) return;
     setText('footVersion', state.meta.version || 'dev');
     setText('footInterval', fmtSeconds(state.meta.interval));
+    const storage = state.meta.storage;
+    if (storage && storage.enabled) {
+      setText(
+        'footStorage',
+        `SQLite · 1s ${fmtDays(storage.rawRetentionSeconds)} / 1m ${fmtDays(storage.minuteRetentionSeconds)}`
+      );
+    } else {
+      setText('footStorage', '仅内存');
+    }
   }
 
   function updateLegends() {
@@ -870,7 +942,7 @@
       return;
     }
     points.push(point);
-    if (points.length > 7200) points.splice(0, points.length - 7200);
+    if (points.length > 20000) points.splice(0, points.length - 20000);
     scheduleCharts();
   }
 
@@ -909,9 +981,48 @@
       };
     }
     state.points = points;
+    state.historyResolution = num(history.resolution) || 1;
+    updateResolutionBadge(history);
     usageChart.setPoints(points);
     networkChart.setPoints(points);
     gpuChart.setPoints(points);
+  }
+
+  function updateResolutionBadge(history) {
+    const resolution = num(history && history.resolution) || 0;
+    const step = num(history && history.step) || 0;
+    let label;
+    if (resolution === 1) label = '1s 原始';
+    else if (resolution === 60) label = '1m 聚合';
+    else if (resolution === 3600) label = '1h 聚合';
+    else label = history ? '无历史数据' : '—';
+    if (!state.storageEnabled) label = state.meta ? '内存 · 1s' : '—';
+    else if (step > resolution && resolution > 0) label += ` · ${fmtStep(step)}步长`;
+    setText('resolutionBadge', label);
+    const badge = $('resolutionBadge');
+    if (badge) badge.title = history ? `数据源分辨率 ${resolution}s，显示步长 ${step}s` : '';
+  }
+
+  function fmtStep(seconds) {
+    const s = num(seconds);
+    if (s >= 3600) return `${Math.round(s / 3600)}h`;
+    if (s >= 60) return `${Math.round(s / 60)}m`;
+    return `${s}s`;
+  }
+
+  async function loadHistory(seconds) {
+    const seq = ++state.historySeq;
+    setText('resolutionBadge', '加载中…');
+    try {
+      const history = await fetchJSON(`/api/history?seconds=${seconds}`);
+      if (seq !== state.historySeq) return;
+      applyHistory(history);
+      if (state.snapshot) pushPoint(pointFrom(state.snapshot));
+    } catch (err) {
+      if (seq !== state.historySeq) return;
+      setText('resolutionBadge', '加载失败');
+      showToast('历史数据加载失败，请稍后重试');
+    }
   }
 
   async function fetchJSON(path) {
@@ -994,19 +1105,20 @@
 
   async function bootstrap() {
     try {
-      const [meta, history, snap] = await Promise.all([
+      const [meta, snap] = await Promise.all([
         fetchJSON('/api/meta'),
-        fetchJSON('/api/history?seconds=3600'),
         fetchJSON('/api/snapshot'),
       ]);
       state.meta = meta;
+      state.storageEnabled = Boolean(meta.storage && meta.storage.enabled);
       state.points = [];
-      applyHistory(history);
-      applySnapshot(snap);
       renderFooter();
+      applyStorageAvailability();
+      applySnapshot(snap);
       $('toast').hidden = true;
       state.booted = true;
       connectStream();
+      await loadHistory(state.windowSec);
     } catch (err) {
       if (err && err.status === 401) {
         showToast('需要访问令牌，请在地址后追加 ?token=…');
@@ -1019,6 +1131,32 @@
     }
   }
 
+  function applyStorageAvailability() {
+    const enabled = Boolean(state.meta && state.meta.storage && state.meta.storage.enabled);
+    const picker = $('rangePicker');
+    if (!picker) return;
+
+    let resetToShort = false;
+    for (const button of picker.querySelectorAll('button')) {
+      const seconds = Number(button.dataset.seconds);
+      const disabled = !enabled && seconds > 3600;
+      button.disabled = disabled;
+      button.title = disabled ? '需要启用历史数据库' : '';
+      if (disabled && seconds === state.windowSec) resetToShort = true;
+    }
+    if (resetToShort) {
+      state.windowSec = 300;
+      store('monitor.window', '300');
+      for (const button of picker.querySelectorAll('button')) {
+        button.classList.toggle('active', Number(button.dataset.seconds) === 300);
+      }
+      usageChart.setWindow(300);
+      networkChart.setWindow(300);
+      gpuChart.setWindow(300);
+    }
+    if (!enabled) setText('resolutionBadge', '内存 · 1s');
+  }
+
   // ---------------------------------------------------------------- controls
 
   function setupRangePicker() {
@@ -1028,12 +1166,14 @@
       const seconds = Number(button.dataset.seconds);
       button.classList.toggle('active', seconds === state.windowSec);
       button.addEventListener('click', () => {
+        if (button.disabled) return;
         state.windowSec = seconds;
         store('monitor.window', String(seconds));
         for (const b of buttons) b.classList.toggle('active', b === button);
         usageChart.setWindow(seconds);
         networkChart.setWindow(seconds);
         gpuChart.setWindow(seconds);
+        loadHistory(seconds);
       });
     }
   }
@@ -1050,6 +1190,217 @@
         renderProcesses(state.snapshot && state.snapshot.processes);
       });
     }
+  }
+
+  // ---------------------------------------------------------------- detail modal
+
+  function setupDetailModal() {
+    $('detailClose').addEventListener('click', closeDetail);
+    $('detailModal').addEventListener('click', (event) => {
+      if (event.target.hasAttribute('data-detail-close')) closeDetail();
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeDetail();
+    });
+  }
+
+  function closeDetail() {
+    if (!state.detailOpen) return;
+    state.detailOpen = false;
+    state.detailSeq += 1;
+    $('detailModal').hidden = true;
+    document.body.classList.remove('modal-open');
+    const previous = state.lastFocus;
+    state.lastFocus = null;
+    if (previous && typeof previous.focus === 'function') previous.focus();
+  }
+
+  function detailResolutionLabel(resolution) {
+    if (resolution === 1) return '1 秒原始数据';
+    if (resolution === 60) return '1 分钟聚合';
+    if (resolution === 3600) return '1 小时聚合';
+    return '聚合数据';
+  }
+
+  async function openDetail(ts) {
+    if (!state.storageEnabled) {
+      showToast('未启用历史数据库，无法查看历史明细');
+      return;
+    }
+    const modal = $('detailModal');
+    state.detailOpen = true;
+    state.lastFocus = document.activeElement;
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+    setText('detailTitle', '历史明细');
+    setText('detailSub', fmtFullTime(ts));
+    $('detailBody').replaceChildren(el('p', { class: 'detail-loading', text: '正在读取历史明细…' }));
+    $('detailClose').focus();
+    usageChart.hideTooltip();
+    gpuChart.hideTooltip();
+
+    const seq = ++state.detailSeq;
+    try {
+      const details = await fetchJSON(`/api/history/details?ts=${encodeURIComponent(ts)}`);
+      if (seq !== state.detailSeq || !state.detailOpen) return;
+      renderDetailBody(details);
+    } catch (err) {
+      if (seq !== state.detailSeq) return;
+      const message = err && err.status === 404 ? '该时间点没有可用的历史明细。' : '历史明细加载失败。';
+      $('detailBody').replaceChildren(el('p', { class: 'detail-loading', text: message }));
+      setText('detailSub', fmtFullTime(ts));
+    }
+  }
+
+  function renderDetailBody(details) {
+    const body = $('detailBody');
+    const sub = $('detailSub');
+    sub.replaceChildren(
+      document.createTextNode(`${fmtFullTime(details.timestamp)} · ${detailResolutionLabel(details.resolution)}`)
+    );
+    if (details.approximate) {
+      sub.append(el('span', { class: 'detail-approx', text: '近似' }));
+    }
+
+    const sections = [];
+    const perCore = Array.isArray(details.perCore) ? details.perCore : [];
+    const cores = el('div', { class: 'cores' });
+    fillCores(cores, perCore);
+    const cpuSection = el(
+      'section',
+      { class: 'detail-section' },
+      el('h3', { text: 'CPU' }),
+      el(
+        'div',
+        { class: 'detail-stat' },
+        el('b', { text: fmtPercent(details.cpuPercent) }),
+        el('span', { text: '总使用率' })
+      ),
+      cores
+    );
+    if (perCore.length === 0) {
+      cpuSection.append(el('p', { class: 'detail-note', text: '该时间点没有分核数据。' }));
+    }
+
+    const memory = details.memory || {};
+    const memPct = clamp(num(memory.percent), 0, 100);
+    const memBar = el('div', { class: 'bar' + (memPct >= 90 ? ' crit' : memPct >= 75 ? ' warn' : '') });
+    const memFill = el('span');
+    memFill.style.width = `${memPct}%`;
+    memBar.append(memFill);
+    const swapText =
+      num(memory.swapTotal) > 0
+        ? `${fmtBytes(memory.swapUsed)} / ${fmtBytes(memory.swapTotal)}`
+        : '未启用';
+    const memSection = el(
+      'section',
+      { class: 'detail-section' },
+      el('h3', { text: '内存' }),
+      el(
+        'div',
+        { class: 'detail-stat' },
+        el('b', { text: fmtPercent(memPct) }),
+        el('span', { text: `${fmtBytes(memory.used)} / ${fmtBytes(memory.total)}` })
+      ),
+      memBar,
+      el(
+        'ul',
+        { class: 'kv' },
+        el('li', {}, el('span', { text: '已用' }), el('b', { text: fmtBytes(memory.used) })),
+        el('li', {}, el('span', { text: '总量' }), el('b', { text: fmtBytes(memory.total) })),
+        el('li', {}, el('span', { text: 'Swap' }), el('b', { text: swapText }))
+      )
+    );
+    sections.push(el('div', { class: 'detail-grid' }, cpuSection, memSection));
+
+    if (Array.isArray(details.gpus) && details.gpus.length > 0) {
+      sections.push(
+        el(
+          'section',
+          { class: 'detail-section' },
+          el('h3', { text: 'GPU' }),
+          el(
+            'div',
+            { class: 'gpu-list' },
+            ...details.gpus.map((gpu) => renderGPUItem(gpu, '该时间点没有 GPU 利用率数据。'))
+          )
+        )
+      );
+    }
+
+    sections.push(
+      el(
+        'section',
+        { class: 'detail-section' },
+        el('h3', { text: '磁盘' }),
+        Array.isArray(details.disks) && details.disks.length > 0
+          ? buildDiskTable(details.disks)
+          : el('p', { class: 'detail-note', text: '该时间点没有磁盘数据。' })
+      )
+    );
+
+    sections.push(
+      el(
+        'section',
+        { class: 'detail-section' },
+        el('h3', { text: '进程排行' }),
+        Array.isArray(details.processes) && details.processes.length > 0
+          ? buildProcessTable(details.processes)
+          : el('p', { class: 'detail-note', text: '该时间点没有进程明细（可能已被保留策略清理）。' })
+      )
+    );
+
+    body.replaceChildren(...sections);
+  }
+
+  function buildDiskTable(disks) {
+    return el(
+      'div',
+      { class: 'table-wrap detail-table-wrap' },
+      el(
+        'table',
+        {},
+        el(
+          'thead',
+          {},
+          el(
+            'tr',
+            {},
+            el('th', { scope: 'col', text: '挂载点' }),
+            el('th', { scope: 'col', text: '文件系统' }),
+            el('th', { scope: 'col', class: 'num', text: '已用 / 总量' }),
+            el('th', { scope: 'col', class: 'meter-col', text: '使用率' })
+          )
+        ),
+        el('tbody', {}, ...disks.map((disk) => buildDiskRow(disk)))
+      )
+    );
+  }
+
+  function buildProcessTable(procs) {
+    const sorted = [...procs].sort((a, b) => num(b.cpuPercent) - num(a.cpuPercent));
+    return el(
+      'div',
+      { class: 'table-wrap detail-table-wrap' },
+      el(
+        'table',
+        {},
+        el(
+          'thead',
+          {},
+          el(
+            'tr',
+            {},
+            el('th', { scope: 'col', text: '进程' }),
+            el('th', { scope: 'col', class: 'num', text: 'PID' }),
+            el('th', { scope: 'col', class: 'num', text: 'CPU' }),
+            el('th', { scope: 'col', class: 'num', text: '内存' }),
+            el('th', { scope: 'col', class: 'num', text: 'RSS' })
+          )
+        ),
+        el('tbody', {}, ...sorted.map((proc) => buildProcessRow(proc)))
+      )
+    );
   }
 
   function currentTheme() {
@@ -1108,6 +1459,7 @@
   gpuChart.setWindow(state.windowSec);
   setupRangePicker();
   setupProcSort();
+  setupDetailModal();
   setupTheme();
   bootstrap();
 

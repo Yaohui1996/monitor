@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"monitor/internal/collector"
+	"monitor/internal/historydb"
 	"monitor/internal/server"
 )
 
@@ -90,6 +93,73 @@ func TestTokenRequiredForAPI(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/health", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("health check must stay public, got %d", rec.Code)
+	}
+}
+
+func TestPersistentHistoryEndpoints(t *testing.T) {
+	db, err := historydb.Open(filepath.Join(t.TempDir(), "monitor.db"), historydb.Options{MaxPoints: 100})
+	if err != nil {
+		t.Fatalf("open history db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	ts := time.Now().Add(-2 * time.Second).UnixMilli()
+	util := 42.5
+	db.Append(&collector.Snapshot{
+		Timestamp: ts,
+		CPU:       collector.CPU{Percent: 21, PerCore: []float64{10, 30, 20, 25}, Cores: 4},
+		Memory:    collector.Memory{Total: 4096, Used: 2048, Percent: 50, SwapTotal: 1024, SwapUsed: 128},
+		Disks:     []collector.Disk{{Device: "/dev/test", Mountpoint: "/", Fstype: "testfs", Total: 100, Used: 40, Free: 60, Percent: 40}},
+		GPUs:      []collector.GPU{{Index: 0, Name: "Test GPU", Utilization: &util}},
+		Processes: []collector.Process{{PID: 42, Name: "history-test", CPUPercent: 7, MemPercent: 3, RSS: 2048}},
+	})
+	if err := db.Flush(context.Background()); err != nil {
+		t.Fatalf("flush history: %v", err)
+	}
+
+	handler := newHandler(t, server.Options{History: db})
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/history?seconds=300", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("history status %d: %s", rec.Code, rec.Body.String())
+	}
+	var hist struct {
+		Resolution int64     `json:"resolution"`
+		Step       int64     `json:"step"`
+		T          []int64   `json:"t"`
+		CPU        []float64 `json:"cpu"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &hist); err != nil {
+		t.Fatalf("decode history: %v", err)
+	}
+	if hist.Resolution != 1 || hist.Step != 1 || len(hist.T) == 0 {
+		t.Fatalf("unexpected persistent history: %+v", hist)
+	}
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/history/details?ts="+strconv.FormatInt(ts, 10), nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("details status %d: %s", rec.Code, rec.Body.String())
+	}
+	var details historydb.Details
+	if err := json.Unmarshal(rec.Body.Bytes(), &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	if len(details.PerCore) != 4 || len(details.GPUs) != 1 || len(details.Processes) != 1 || len(details.Disks) != 1 {
+		t.Fatalf("missing persistent details: %+v", details)
+	}
+
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/meta", nil))
+	var meta struct {
+		Storage historydb.Info `json:"storage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &meta); err != nil {
+		t.Fatalf("decode meta: %v", err)
+	}
+	if !meta.Storage.Enabled {
+		t.Fatal("expected storage to be enabled in meta")
 	}
 }
 

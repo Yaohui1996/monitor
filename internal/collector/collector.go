@@ -17,6 +17,14 @@ type Options struct {
 	TopProcesses int
 	// HistorySize is the number of samples kept in memory.
 	HistorySize int
+	// Sink, when set, receives every published snapshot for durable storage.
+	// Append must not block the sampling loop.
+	Sink Sink
+}
+
+// Sink receives published snapshots for persistence.
+type Sink interface {
+	Append(*Snapshot)
 }
 
 // Collector periodically samples the machine and publishes immutable snapshots.
@@ -52,6 +60,7 @@ type Collector struct {
 	static hostStatic
 	prev   prevState
 	last   lastGood
+	sink   Sink
 }
 
 type netCounters struct {
@@ -108,6 +117,7 @@ func New(opts Options) *Collector {
 		first:     make(chan struct{}),
 		static:    readHostStatic(),
 		procCPU:   make(map[int32]float64),
+		sink:      opts.Sink,
 	}
 }
 
@@ -175,6 +185,10 @@ func (c *Collector) collect(now time.Time, publish bool) {
 	c.history.add(pointFrom(snap))
 	c.hub.publish(snap)
 	c.firstOnce.Do(func() { close(c.first) })
+
+	if c.sink != nil {
+		c.sink.Append(snap)
+	}
 }
 
 // Latest returns the most recent snapshot, if any.
