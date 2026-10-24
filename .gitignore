@@ -1,0 +1,13 @@
+# Build output
+/monitor
+/monitor.exe
+/dist/
+
+# Logs and OS noise
+*.log
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp

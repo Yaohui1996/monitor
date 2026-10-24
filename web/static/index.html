@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="本机 CPU、内存、磁盘与网络资源实时监控面板">
+<title>Monitor · 本机资源监控</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1220'/%3E%3Cpath d='M10 34h10l5-14 8 28 6-14h15' fill='none' stroke='%2322d3ee' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="aurora" aria-hidden="true"></div>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 13h3.2l2.3-7 4.5 13 3-6H21"/>
+        </svg>
+      </span>
+      <div class="brand-text">
+        <h1 id="hostname">本机监控</h1>
+        <p id="hostMeta">正在连接采集服务…</p>
+      </div>
+    </div>
+    <div class="topmeta">
+      <span class="chip" id="connChip"><span class="dot"></span><span id="connText">连接中</span></span>
+      <span class="chip" id="loadChip">负载 <b id="loadValue">—</b></span>
+      <span class="chip" id="uptimeChip">运行 <b id="uptimeValue">—</b></span>
+    </div>
+  </header>
+
+  <noscript><p class="noscript">需要启用 JavaScript 才能显示实时监控数据。</p></noscript>
+
+  <section class="metrics" aria-label="核心指标">
+    <article class="card">
+      <header class="card-head">
+        <h2>CPU</h2>
+        <span class="card-sub" id="cpuSub">—</span>
+      </header>
+      <div class="cpu-body">
+        <div class="gauge" id="cpuGauge">
+          <div class="gauge-inner">
+            <b id="cpuValue">—</b><span>%</span>
+          </div>
+        </div>
+        <div class="cpu-side">
+          <ul class="micro">
+            <li><span>user</span><b id="cpuUser">—</b></li>
+            <li><span>system</span><b id="cpuSystem">—</b></li>
+            <li><span>iowait</span><b id="cpuIowait">—</b></li>
+          </ul>
+          <div class="cores" id="cores" aria-label="各逻辑核心使用率"></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card">
+      <header class="card-head">
+        <h2>内存</h2>
+        <span class="card-sub" id="memSub">—</span>
+      </header>
+      <div class="metric-main">
+        <b class="big" id="memValue">—</b><span class="unit">% 已用</span>
+      </div>
+      <div class="bar" id="memBarWrap"><span id="memBar"></span></div>
+      <ul class="kv">
+        <li><span>可用</span><b id="memAvail">—</b></li>
+        <li><span>缓存</span><b id="memCached">—</b></li>
+        <li><span>已用</span><b id="memUsed">—</b></li>
+        <li><span>Swap</span><b id="memSwap">—</b></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <header class="card-head">
+        <h2>网络</h2>
+        <span class="card-sub" id="netSub">—</span>
+      </header>
+      <div class="rates">
+        <div class="rate">
+          <span class="rate-icon rx" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14m0 0l-6-6m6 6l6-6"/></svg>
+          </span>
+          <div class="rate-text"><b id="netRx">—</b><span>下行 / 秒</span></div>
+        </div>
+        <div class="rate">
+          <span class="rate-icon tx" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V6m0 0l-6 6m6-6l6 6"/></svg>
+          </span>
+          <div class="rate-text"><b id="netTx">—</b><span>上行 / 秒</span></div>
+        </div>
+      </div>
+      <ul class="kv">
+        <li><span>累计接收</span><b id="netRxTotal">—</b></li>
+        <li><span>累计发送</span><b id="netTxTotal">—</b></li>
+      </ul>
+    </article>
+
+    <article class="card">
+      <header class="card-head">
+        <h2>磁盘 IO</h2>
+        <span class="card-sub" id="ioSub">—</span>
+      </header>
+      <div class="rates">
+        <div class="rate">
+          <span class="rate-icon read" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v14m0 0l-6-6m6 6l6-6"/></svg>
+          </span>
+          <div class="rate-text"><b id="ioRead">—</b><span>读取 / 秒</span></div>
+        </div>
+        <div class="rate">
+          <span class="rate-icon write" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V6m0 0l-6 6m6-6l6 6"/></svg>
+          </span>
+          <div class="rate-text"><b id="ioWrite">—</b><span>写入 / 秒</span></div>
+        </div>
+      </div>
+      <ul class="kv">
+        <li><span>IOPS 读</span><b id="ioReadOps">—</b></li>
+        <li><span>IOPS 写</span><b id="ioWriteOps">—</b></li>
+      </ul>
+    </article>
+  </section>
+
+  <section class="charts" aria-label="趋势图">
+    <article class="card chart-card">
+      <header class="card-head chart-head">
+        <div class="head-left">
+          <h2>利用率趋势</h2>
+          <div class="legend">
+            <span class="legend-item cpu"><i></i>CPU <b id="legendCpu">—</b></span>
+            <span class="legend-item mem"><i></i>内存 <b id="legendMem">—</b></span>
+          </div>
+        </div>
+        <div class="segmented" id="rangePicker" role="group" aria-label="时间范围">
+          <button type="button" data-seconds="60">1m</button>
+          <button type="button" data-seconds="300" class="active">5m</button>
+          <button type="button" data-seconds="900">15m</button>
+          <button type="button" data-seconds="3600">1h</button>
+        </div>
+      </header>
+      <div class="chart-wrap">
+        <canvas id="usageChart" role="img" aria-label="CPU 与内存利用率随时间的趋势">浏览器不支持 Canvas。</canvas>
+      </div>
+    </article>
+
+    <article class="card chart-card">
+      <header class="card-head chart-head">
+        <div class="head-left">
+          <h2>网络吞吐</h2>
+          <div class="legend">
+            <span class="legend-item rx"><i></i>下行 <b id="legendRx">—</b></span>
+            <span class="legend-item tx"><i></i>上行 <b id="legendTx">—</b></span>
+          </div>
+        </div>
+      </header>
+      <div class="chart-wrap">
+        <canvas id="networkChart" role="img" aria-label="网络下行与上行吞吐趋势">浏览器不支持 Canvas。</canvas>
+      </div>
+    </article>
+  </section>
+
+  <section class="panels" aria-label="明细">
+    <article class="card">
+      <header class="card-head">
+        <h2>磁盘使用</h2>
+        <span class="card-sub" id="diskCount">—</span>
+      </header>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">挂载点</th>
+              <th scope="col">文件系统</th>
+              <th scope="col" class="num">已用 / 总量</th>
+              <th scope="col" class="meter-col">使用率</th>
+            </tr>
+          </thead>
+          <tbody id="diskBody"></tbody>
+        </table>
+      </div>
+    </article>
+
+    <article class="card">
+      <header class="card-head">
+        <h2>进程排行</h2>
+        <div class="segmented small" id="procSort" role="group" aria-label="进程排序方式">
+          <button type="button" data-sort="cpu" class="active">CPU</button>
+          <button type="button" data-sort="mem">内存</button>
+        </div>
+      </header>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">进程</th>
+              <th scope="col" class="num">PID</th>
+              <th scope="col" class="num">CPU</th>
+              <th scope="col" class="num">内存</th>
+              <th scope="col" class="num">RSS</th>
+            </tr>
+          </thead>
+          <tbody id="procBody"></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <footer class="footer">
+    <div class="info" id="infoGrid"></div>
+    <p class="footnote">
+      采样间隔 <span id="footInterval">—</span> · 数据仅保留在内存中 · monitor <span id="footVersion">—</span>
+    </p>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="tooltip" id="chartTooltip" role="status" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>
